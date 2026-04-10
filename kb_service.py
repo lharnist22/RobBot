@@ -3,6 +3,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections import Counter
 from typing import Literal
 
 import chromadb
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 OPENAI_EMBED_MODEL = "text-embedding-3-large"
 COLLECTION_NAME = "king_of_kb"
 CHROMA_PATH = "./chroma_db"
+JSONL_PATH = "knowledge_base.jsonl"
 
 app = FastAPI()
 
@@ -61,8 +63,40 @@ PARLANT_BASE_URL = (os.getenv("PARLANT_BASE_URL") or "").strip()
 PARLANT_ALLOW_GREETING = (os.getenv("PARLANT_ALLOW_GREETING") or "false").lower() in {"1", "true", "yes", "y"}
 openai = OpenAI()
 
-chroma = chromadb.PersistentClient(path=CHROMA_PATH)
-col = chroma.get_collection(COLLECTION_NAME)
+RETRIEVAL_BACKEND = "chroma"
+
+
+def _load_jsonl_records() -> list[dict]:
+    if not os.path.isfile(JSONL_PATH):
+        return []
+
+    records: list[dict] = []
+    with open(JSONL_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def _init_retrieval_backend():
+    global RETRIEVAL_BACKEND
+
+    try:
+        chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+        collection = chroma_client.get_collection(COLLECTION_NAME)
+        return chroma_client, collection, []
+    except Exception as e:
+        RETRIEVAL_BACKEND = "jsonl_fallback"
+        print(f"Chroma unavailable, using JSONL fallback retrieval: {e}")
+        return None, None, _load_jsonl_records()
+
+
+chroma, col, kb_records = _init_retrieval_backend()
 
 if os.path.isdir("web"):
     app.mount("/static", StaticFiles(directory="web"), name="static")
@@ -88,6 +122,47 @@ class ChatRequest(BaseModel):
 def embed(text: str) -> list[float]:
     resp = openai.embeddings.create(model=OPENAI_EMBED_MODEL, input=text)
     return resp.data[0].embedding
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _retrieve_context_from_jsonl(query: str, k: int) -> tuple[str, list[dict]]:
+    query_tokens = _tokenize(query)
+    if not query_tokens or not kb_records:
+        return "", []
+
+    query_counts = Counter(query_tokens)
+    scored: list[tuple[int, int, dict]] = []
+
+    for record in kb_records:
+        text = record.get("text", "")
+        text_tokens = _tokenize(text)
+        if not text_tokens:
+            continue
+
+        text_counts = Counter(text_tokens)
+        overlap = sum(min(query_counts[token], text_counts[token]) for token in query_counts)
+        phrase_bonus = 3 if query.lower() in text.lower() else 0
+        score = overlap + phrase_bonus
+        if score <= 0:
+            continue
+
+        scored.append((score, len(text), record))
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    top_records = [record for _, _, record in scored[:k]]
+    hits = [
+        {
+            "id": record.get("id"),
+            "source": record.get("source"),
+            "text": record.get("text", ""),
+        }
+        for record in top_records
+    ]
+    context = "\n\n---\n\n".join(hit["text"] for hit in hits)
+    return context, hits
 
 
 def should_retrieve(user_text: str) -> bool:
@@ -194,6 +269,9 @@ def openai_fallback_reply(system: str, req: ChatRequest, msg: str) -> str:
 
 
 def retrieve_context(query: str, k: int) -> tuple[str, list[dict]]:
+    if RETRIEVAL_BACKEND != "chroma":
+        return _retrieve_context_from_jsonl(query, k)
+
     q = embed(query)
     res = col.query(query_embeddings=[q], n_results=k)
 
@@ -284,6 +362,7 @@ def health():
         "ok": True,
         "collection": COLLECTION_NAME,
         "chat_mode": "parlant" if _parlant_enabled() else "openai_fallback",
+        "retrieval_backend": RETRIEVAL_BACKEND,
     }
 
 
