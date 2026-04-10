@@ -1,0 +1,21 @@
+{
+  "name": "robbot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "bot": "tsx robBot.ts",
+    "web": "python run_robbot.py",
+    "web:quick": "python run_robbot.py --skip-ingest",
+    "all": "python run_robbot.py"
+  },
+  "dependencies": {
+    "chromadb": "^3.3.1",
+    "dotenv": "^17.3.1",
+    "openai": "^6.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

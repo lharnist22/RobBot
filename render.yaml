@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: robbot
+    runtime: python
+    plan: free
+    rootDir: RobBot
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn kb_service:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-4o-mini
+      - key: PARLANT_ALLOW_GREETING
+        value: "false"
