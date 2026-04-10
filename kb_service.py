@@ -83,8 +83,26 @@ def _load_jsonl_records() -> list[dict]:
     return records
 
 
+def _should_skip_chroma() -> bool:
+    flag = (os.getenv("DISABLE_CHROMA") or "").strip().lower()
+    if flag in {"1", "true", "yes", "y"}:
+        return True
+
+    # Railway runtime is a good signal that the checked-in local Chroma store
+    # may not be portable, so default to the safer JSONL fallback there.
+    return any(
+        os.getenv(name)
+        for name in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_ID", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID")
+    )
+
+
 def _init_retrieval_backend():
     global RETRIEVAL_BACKEND
+
+    if _should_skip_chroma():
+        RETRIEVAL_BACKEND = "jsonl_fallback"
+        print("Skipping Chroma and using JSONL fallback retrieval.")
+        return None, None, _load_jsonl_records()
 
     try:
         chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
