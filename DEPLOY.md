@@ -21,6 +21,8 @@ Your local `.env` currently contains a real OpenAI API key. Rotate that key in t
 5. When prompted for env vars, set `OPENAI_API_KEY`.
 6. Deploy.
 
+Render currently defaults new Python services to Python `3.14.3`. This project pins Python `3.11` because some dependencies in this app do not build cleanly on Render's default `3.14` image.
+
 ## App details
 
 - Root directory: `RobBot`

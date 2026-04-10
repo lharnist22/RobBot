@@ -3,11 +3,12 @@ services:
     name: robbot
     runtime: python
     plan: free
-    rootDir: RobBot
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn kb_service:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_CHAT_MODEL
